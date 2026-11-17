@@ -14,9 +14,19 @@ from pathlib import Path
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
 
+
+class NoCacheStaticFiles(StaticFiles):
+    """Serve static files with revalidation so browsers never run stale JS/CSS."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Mount the static files directory
 current_dir = Path(__file__).parent
-app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
+app.mount("/static", NoCacheStaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
 
 # In-memory activity database
@@ -106,3 +116,19 @@ def signup_for_activity(activity_name: str, email: str):
     # Add student
     activity["participants"].append(email)
     return {"message": f"Signed up {email} for {activity_name}"}
+
+
+@app.delete("/activities/{activity_name}/participants")
+def unregister_participant(activity_name: str, email: str):
+    """Unregister a student from an activity"""
+    if activity_name not in activities:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    activity = activities[activity_name]
+    normalized_email = email.strip().lower()
+    for participant in activity["participants"]:
+        if participant.strip().lower() == normalized_email:
+            activity["participants"].remove(participant)
+            return {"message": f"Unregistered {participant} from {activity_name}"}
+
+    raise HTTPException(status_code=404, detail="Student is not signed up for this activity")
